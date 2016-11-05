@@ -1,4 +1,5 @@
 /* Written by Dmitry Chestnykh. Public domain. */
+/* Edited by Alexandra Batarina */
 #include <err.h>
 #include <stdint.h>
 #include <stdio.h>
