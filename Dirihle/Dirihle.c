@@ -6,15 +6,15 @@
 
 
 // Domain size.
-const double A = 3.0;
-const double B = 3.0;
+const double A = 2.0;
+const double B = 2.0;
 const int SDINum = 1;
 
 #define Test
 #define Print
 #define TRUE  ((int) 1)
 #define FALSE ((int) 0)
-#define Step 10
+#define Step 100
 
 #define Max(A,B) ((A)>(B)?(A):(B))
 #define Min(A,B) ((A)<(B)?(A):(B))
@@ -31,7 +31,7 @@ const int SDINum = 1;
 
 double Solution(double x,double y)
 {
-    return Sqr(1-x*x)+Sqr(1-y*y);	//log(1 + x*y);
+    return Sqr(1-(x-1)*(x-1))+Sqr(1-(y-1)*(y-1));	//log(1 + x*y);
 }
 
 double BoundaryValue(double x, double y)
@@ -45,7 +45,7 @@ int RightPart(double * rhs, double * XNodes, double * YNodes, int NX, int NY)
 
 	for(j=0; j<NY; j++)
 	   for(i=0; i<NX; i++)
-	       rhs[j*NX+i] = 4*(2-3*Sqr(XNodes[i])-3*Sqr(YNodes[j]));	//(Sqr(XNodes[i])+Sqr(YNodes[j]))/Sqr(1+XNodes[i]*YNodes[j]);
+	       rhs[j*NX+i] = 4*(2-3*Sqr(XNodes[i]-1)-3*Sqr(YNodes[j]-1));	//(Sqr(XNodes[i])+Sqr(YNodes[j]))/Sqr(1+XNodes[i]*YNodes[j]);
 	return 0;
 }
 
@@ -223,7 +223,7 @@ int CGM(int CGMNum, double * XNodes, double * YNodes, int NX, int NY, MPI_Comm G
 				ResVect[NX*j+i] = LeftPart(SolVect,i,j,XNodes,YNodes,NX,NY)-RHS_Vect[NX*j+i];
 
 // Send ResVect to neighbours
-		Send(ResVect, NX, NY, up, down, left, right, counter, Grid_Comm);
+		Send(ResVect, NX, NY, up, down, left, right, 2, Grid_Comm);
 
 // The value of product (r(k),r(k)) is calculating ...
 		sp = 0.0;
@@ -235,7 +235,7 @@ int CGM(int CGMNum, double * XNodes, double * YNodes, int NX, int NY, MPI_Comm G
 		tau = sp;
 
 // Receive ResVect from neighbours
-		Receive(ResVect, NX, NY, up, down, left, right, counter, Grid_Comm);
+		Receive(ResVect, NX, NY, up, down, left, right, 2, Grid_Comm);
 
 // The value of product sp = (Ar(k),r(k)) is calculating ...
 		sp = 0.0;
@@ -257,7 +257,7 @@ int CGM(int CGMNum, double * XNodes, double * YNodes, int NX, int NY, MPI_Comm G
 			}
 
 // Send boundary SolVect
-		Send(SolVect, NX, NY, up, down, left, right, counter, Grid_Comm);
+		Send(SolVect, NX, NY, up, down, left, right, 1, Grid_Comm);
 
 		tmp = err;
 		MPI_Allreduce(&tmp, &err, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
@@ -300,7 +300,7 @@ int CGM(int CGMNum, double * XNodes, double * YNodes, int NX, int NY, MPI_Comm G
 	for(counter=1; counter<=CGMNum; counter++)
 	{
 	// Receive SolVect from neighbours
-		Receive(SolVect, NX, NY, up, down, left, right, counter, Grid_Comm);
+		Receive(SolVect, NX, NY, up, down, left, right, 1, Grid_Comm);
 
 	// The residual vector r(k) is calculating ...
 		for(j=1; j < NY-1; j++)
@@ -308,30 +308,26 @@ int CGM(int CGMNum, double * XNodes, double * YNodes, int NX, int NY, MPI_Comm G
 				ResVect[NX*j+i] = LeftPart(SolVect,i,j,XNodes,YNodes,NX,NY)-RHS_Vect[NX*j+i];
 
 	// Send ResVect to neighbours
-		Send(ResVect, NX, NY, up, down, left, right, counter, Grid_Comm);
+		Send(ResVect, NX, NY, up, down, left, right, 2, Grid_Comm);
 
 	// Receive ResVect from neighbours
-		Receive(ResVect, NX, NY, up, down, left, right, counter, Grid_Comm);
+		Receive(ResVect, NX, NY, up, down, left, right, 2, Grid_Comm);
 
 	// The value of product (Ar(k),g(k-1)) is calculating ...
-		printf("\nCalculating (Ar(k),g(k-1)) ...\n");
 		alpha = 0.0;
 		for(j=1; j < NY-1; j++)
 			for(i=1; i < NX-1; i++)
 				alpha += LeftPart(ResVect,i,j,XNodes,YNodes,NX,NY)*BasisVect[NX*j+i]*(0.5*(hx(i,XNodes)+hx(i-1,XNodes)))*(0.5*(hy(j,YNodes)+hy(j-1,YNodes)));
 		tmp = alpha;
-		printf("\n ...\n");
 		MPI_Allreduce(&tmp, &alpha, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 		alpha = alpha/sp;
 
 	// The new basis vector g(k) is being calculated ...
-		printf("\nCalculating g(k) ...\n");
 		for(j=1; j < NY-1; j++)
 			for(i=1; i < NX-1; i++)
 				BasisVect[NX*j+i] = ResVect[NX*j+i]-alpha*BasisVect[NX*j+i];
 
 	// The value of product (r(k),g(k)) is being calculated ...
-		printf("\nCalculating (r(k),g(k)) ...\n");
 		tau = 0.0;
 		for(j=1; j < NY-1; j++)
 			for(i=1; i < NX-1; i++)
@@ -340,7 +336,6 @@ int CGM(int CGMNum, double * XNodes, double * YNodes, int NX, int NY, MPI_Comm G
 		MPI_Allreduce(&tmp, &tau, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 		
 	// The value of product sp = (Ag(k),g(k)) is being calculated ...
-		printf("\nCalculating (Ag(k),g(k)) ...\n");
 		sp = 0.0;
 		for(j=1; j < NY-1; j++)
 			for(i=1; i < NX-1; i++)
@@ -350,7 +345,6 @@ int CGM(int CGMNum, double * XNodes, double * YNodes, int NX, int NY, MPI_Comm G
 		tau = tau/sp;
 
 	// The x(k+1) is being calculated ...,NX,NY
-		printf("\nCalculating x(k+1) ...\n");
 		err = 0.0;
 		for(j=1; j < NY-1; j++)
 			for(i=1; i < NX-1; i++)
@@ -360,14 +354,14 @@ int CGM(int CGMNum, double * XNodes, double * YNodes, int NX, int NY, MPI_Comm G
 				SolVect[NX*j+i] = NewValue;
 			}
 // Send boundary SolVect
-		Send(SolVect, NX, NY, up, down, left, right, counter, Grid_Comm);
+		Send(SolVect, NX, NY, up, down, left, right, 1, Grid_Comm);
 
 // Calculate err
 		tmp = err;
 		MPI_Allreduce(&tmp, &err, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 		err = sqrt(err);
 
-		if(1)//counter%Step == 0)
+		if(counter%Step == 0 && rank == 0)
 		{
 			printf("The %d iteration of CGM method has been carried out.\n", counter);
             
@@ -376,14 +370,14 @@ int CGM(int CGMNum, double * XNodes, double * YNodes, int NX, int NY, MPI_Comm G
                        "The value of \\alpha(k) = %f, \\tau(k) = %f. The difference value is %f.\n",\
                         counter, alpha, tau, err);
 #endif
-
+        if (err < 0.00001) break;
 #ifdef Test
-			err = 0.0;
+			tmp = 0.0;
 			for(j=1; j < NY-1; j++)
 				for(i=1; i < NX-1; i++)
-					err = Max(err, fabs(Solution(XNodes[i],YNodes[j])-SolVect[NX*j+i]));
+					tmp = Max(err, fabs(Solution(XNodes[i],YNodes[j])-SolVect[NX*j+i]));
 			printf("The %d iteration of CGM have been performed. The residual error is %.12f\n",\
-                        counter, err);
+                        counter, tmp);
 #endif
 		}
 	}
