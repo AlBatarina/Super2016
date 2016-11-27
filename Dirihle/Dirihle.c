@@ -8,13 +8,20 @@
 // Domain size.
 const double A = 2.0;
 const double B = 2.0;
+
+const double A0 = -1.0;
+const double B0 = -1.0;
+
+const double A1 = 1.0;
+const double B1 = 1.0;
+
 const int SDINum = 1;
 
 #define Test
 #define Print
 #define TRUE  ((int) 1)
 #define FALSE ((int) 0)
-#define Step 100
+#define Step 5000
 
 #define Max(A,B) ((A)>(B)?(A):(B))
 #define Min(A,B) ((A)<(B)?(A):(B))
@@ -31,7 +38,7 @@ const int SDINum = 1;
 
 double Solution(double x,double y)
 {
-    return Sqr(1-(x-1)*(x-1))+Sqr(1-(y-1)*(y-1));	//log(1 + x*y);
+    return Sqr(1-x*x)+Sqr(1-y*y);	//log(1 + x*y);
 }
 
 double BoundaryValue(double x, double y)
@@ -45,7 +52,7 @@ int RightPart(double * rhs, double * XNodes, double * YNodes, int NX, int NY)
 
 	for(j=0; j<NY; j++)
 	   for(i=0; i<NX; i++)
-	       rhs[j*NX+i] = 4*(2-3*Sqr(XNodes[i]-1)-3*Sqr(YNodes[j]-1));	//(Sqr(XNodes[i])+Sqr(YNodes[j]))/Sqr(1+XNodes[i]*YNodes[j]);
+	       rhs[j*NX+i] = 4*(2-3*Sqr(XNodes[i])-3*Sqr(YNodes[j]));	//(Sqr(XNodes[i])+Sqr(YNodes[j]))/Sqr(1+XNodes[i]*YNodes[j]);
 	return 0;
 }
 
@@ -57,9 +64,11 @@ int MeshGenerate(double * XNodes, double * YNodes, int N0, int N1)
 	double hy = B / (N1-1);
 
 	for(i=0; i<N0; i++)
-		XNodes[i] = i*hx;	//XNodes[i] = A*(pow(1.0+i/(N0-1.0),q)-1.0)/(pow(2.0,q)-1.0);
+		XNodes[i] = A0 + i*hx;	//XNodes[i] = A*(pow(1.0+i/(N0-1.0),q)-1.0)/(pow(2.0,q)-1.0);
 	for(i=0; i<N1; i++)
-		YNodes[i] = i*hy;	//YNodes[i] = B*(pow(1.0+i/(N1-1.0),q)-1.0)/(pow(2.0,q)-1.0);
+		YNodes[i] = B0 + i*hy;	//YNodes[i] = B*(pow(1.0+i/(N1-1.0),q)-1.0)/(pow(2.0,q)-1.0);
+	XNodes[N0-1]=A1;
+	YNodes[N1-1]=B1;
 	return 0;
 }
 
@@ -149,7 +158,7 @@ int Receive(double * Vect, int NX, int NY, int up, int down, int left, int right
 	return 0;
 }
 
-int CGM(int CGMNum, double * XNodes, double * YNodes, int NX, int NY, MPI_Comm Grid_Comm){
+int CGM(int CGMNum, double * XNodes, double * YNodes, int NX, int NY, int N0, int N1, MPI_Comm Grid_Comm){
 
 	double * SolVect;						// the solution array.
 	double * ResVect;						// the residual array.
@@ -160,6 +169,7 @@ int CGM(int CGMNum, double * XNodes, double * YNodes, int NX, int NY, MPI_Comm G
 	double tmp;
     int left, right, up, down;      // the neighbours of the process.
     int rank;
+    int ProcNum;
 
 	int i,j;
 	char str[127];
@@ -183,28 +193,28 @@ int CGM(int CGMNum, double * XNodes, double * YNodes, int NX, int NY, MPI_Comm G
 
 // Initialization of Arrays
 	memset(ResVect,0,NX*NY*sizeof(double));
-	memset(SolVect,0,NX*NY*sizeof(double));
+	memset(SolVect,1,NX*NY*sizeof(double));
 	RightPart(RHS_Vect,XNodes,YNodes,NX,NY);
 
 	x0=y0=0;
 	xn=NX; yn=NY;
 
-	if (YNodes[0] == 0){
+	if (YNodes[0] == B0){
 		for(i=0; i<NX; i++)
 			SolVect[i] = BoundaryValue(XNodes[i],YNodes[0]);
 		y0=1;
 	} 		
-	if (YNodes[NY-1] == B){
+	if (YNodes[NY-1] == B1){
 		for(i=0; i<NX; i++)
 			SolVect[NX*(NY-1)+i] = BoundaryValue(XNodes[i],YNodes[NY-1]);
 		yn=NY-1;
 	}   
-	if (XNodes[0] == 0){
+	if (XNodes[0] == A0){
 		for(j=0; j<NY; j++)
 			SolVect[NX*j] = BoundaryValue(XNodes[0],YNodes[j]);
 		x0=1;
 	}
-	if (XNodes[NX-1] == A){
+	if (XNodes[NX-1] == A1){
 		for(j=0; j<NY; j++)
 			SolVect[NX*j+(NX-1)] = BoundaryValue(XNodes[NX-1],YNodes[j]);
 		xn=NX-1;
@@ -274,14 +284,14 @@ int CGM(int CGMNum, double * XNodes, double * YNodes, int NX, int NY, MPI_Comm G
 					counter, tau, err);
     #endif
 
-    #ifdef Test
+/*    #ifdef Test
 			err = 0.0;
 			for(j=1; j < NY-1; j++)
 				for(i=1; i < NX-1; i++)
 					err = Max(err, fabs(Solution(XNodes[i],YNodes[j])-SolVect[NX*j+i]));
 			printf("The Steep Descent iteration %d have been performed. "
 					   "The residual error is %.12f\n", counter, err);
-    #endif
+    #endif*/
         }
     }
 // the end of steep descent iteration.
@@ -371,14 +381,14 @@ int CGM(int CGMNum, double * XNodes, double * YNodes, int NX, int NY, MPI_Comm G
                         counter, alpha, tau, err);
 #endif
         if (err < 0.00001) break;
-#ifdef Test
+/*#ifdef Test
 			tmp = 0.0;
 			for(j=1; j < NY-1; j++)
 				for(i=1; i < NX-1; i++)
 					tmp = Max(err, fabs(Solution(XNodes[i],YNodes[j])-SolVect[NX*j+i]));
 			printf("The %d iteration of CGM have been performed. The residual error is %.12f\n",\
                         counter, tmp);
-#endif
+#endif*/
 		}
 	}
 // the end of CGM iterations.
@@ -387,17 +397,14 @@ int CGM(int CGMNum, double * XNodes, double * YNodes, int NX, int NY, MPI_Comm G
 	printf("\nThe %d iterations are carried out. The error of iterations is estimated by %.12f.\n",
                 CGMNum, err);
 
-	sprintf(str,"PuassonSerial_ECGM_%dx%d.dat", NX, NY);
-	fp = fopen(str,"w");
-		fprintf(fp,"# This is the conjugate gradient method for descrete Puasson equation.\n"
-				"# X: [%f,%f], Y: [%f,%f], NX = %d, NY = %d, SDINum = %d, CGMNum = %d.\n"
-				"# One can draw it by gnuplot by the command: splot 'MyPath\\FileName.dat' with lines\n",\
-				XNodes[0],XNodes[NX-1], YNodes[0], YNodes[NY-1], NX, NY, SDINum, CGMNum);
-		for (j=0; j < NY; j++)
+    MPI_Comm_size(MPI_COMM_WORLD,&ProcNum);
+
+	sprintf(str,"PuassonSerial_ECGM_%d_%dx%d.dat", ProcNum, N0, N1);
+	fp = fopen(str,"a");
+		for (j=0; j < NY; j+=100)
 		{
-			for (i=0; i < NX; i++)
-				fprintf(fp,"\n%f %f %f", XNodes[i], YNodes[j], SolVect[NX*j+i]);
-			fprintf(fp,"\n");
+			for (i=0; i < NX; i+=100)
+				fprintf(fp,"%f %f %f\n", XNodes[i], YNodes[j], SolVect[NX*j+i]);
 		}
 	fclose(fp);
 
@@ -511,9 +518,9 @@ int main(int argc, char **argv)
 
 
     if (rank == 0){
-		printf("The Domain: [0,%f]x[0,%f], number of points: N[0,A] = %d, N[0,B] = %d;\n"
+		printf("The Domain: [%f,%f]x[%f,%f], number of points: %dx%d;\n"
 				   "The conjugate gradient iterations number: %d\n",
-				    A,B, N0,N1,CGMNum);
+				    A0, A1 , B0, B1, N0,N1,CGMNum);
 	}
 
 	XNodes = (double *)malloc(N0*sizeof(double));
@@ -530,7 +537,7 @@ int main(int argc, char **argv)
 #endif
 
 	time0 = MPI_Wtime();
-    CGM(CGMNum, XNodes+i0, YNodes+j0, NX, NY, Grid_Comm);
+    CGM(CGMNum, XNodes+i0, YNodes+j0, NX, NY, N0, N1, Grid_Comm);
 	time1 = MPI_Wtime();
 
 	if (rank == 0)
