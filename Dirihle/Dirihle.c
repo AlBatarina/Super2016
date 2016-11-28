@@ -21,7 +21,7 @@ const int SDINum = 1;
 #define Print
 #define TRUE  ((int) 1)
 #define FALSE ((int) 0)
-#define Step 5000
+#define Step 100
 
 #define Max(A,B) ((A)>(B)?(A):(B))
 #define Min(A,B) ((A)<(B)?(A):(B))
@@ -119,17 +119,20 @@ int Send(double * Vect, int NX, int NY, int up, int down, int left, int right, i
 	int j;
 	double * TmpVect= (double *)malloc((NY-2)*sizeof(double));						// for sending or receiving
 
-	MPI_Send(Vect+NX+1, NX-2, MPI_DOUBLE, up, tag, Grid_Comm);
-	MPI_Send(Vect+NX*(NY-2)+1, NX-2, MPI_DOUBLE, down, tag, Grid_Comm);
+	if (up >= 0) MPI_Send(Vect+NX+1, NX-2, MPI_DOUBLE, up, tag, Grid_Comm);
+	if (down >= 0) MPI_Send(Vect+NX*(NY-2)+1, NX-2, MPI_DOUBLE, down, tag, Grid_Comm);
 
-	for(j=1; j < NY-1; j++)
-		TmpVect[j-1] = Vect[NX*j+1];
-	MPI_Send(TmpVect, NY-2, MPI_DOUBLE, left, tag, Grid_Comm);
+	if (left >= 0){
+		for(j=1; j < NY-1; j++)
+			TmpVect[j-1] = Vect[NX*j+1];
+		MPI_Send(TmpVect, NY-2, MPI_DOUBLE, left, tag, Grid_Comm);
+	}
 
-	for(j=1; j < NY-1; j++)
-		TmpVect[j-1] = Vect[NX*j+NX-2];
-	MPI_Send(TmpVect, NY-2, MPI_DOUBLE, right, tag, Grid_Comm);
-
+	if (right >= 0){
+		for(j=1; j < NY-1; j++)
+			TmpVect[j-1] = Vect[NX*j+NX-2];
+		MPI_Send(TmpVect, NY-2, MPI_DOUBLE, right, tag, Grid_Comm);
+	}
 	free(TmpVect);
 	return 0;
 }
@@ -139,16 +142,16 @@ int Receive(double * Vect, int NX, int NY, int up, int down, int left, int right
     MPI_Status status;
 	double * TmpVect= (double *)malloc((NY-2)*sizeof(double));						// for sending or receiving
 
-	MPI_Recv(Vect+1, NX-2, MPI_DOUBLE, up, tag, Grid_Comm, &status);
-	MPI_Recv(Vect+NX*(NY-1)+1, NX-2, MPI_DOUBLE, down, tag, Grid_Comm, &status);
+	if (up >= 0) MPI_Recv(Vect+1, NX-2, MPI_DOUBLE, up, tag, Grid_Comm, &status);
+	if (down >= 0) MPI_Recv(Vect+NX*(NY-1)+1, NX-2, MPI_DOUBLE, down, tag, Grid_Comm, &status);
 
-	if (left != MPI_PROC_NULL){
+	if (left >= 0){
 		MPI_Recv(TmpVect, NY-2, MPI_DOUBLE, left, tag, Grid_Comm, &status);
 		for(j=1; j < NY-1; j++)
 			Vect[NX*j] = TmpVect[j-1];
 	}
 
-	if (right != MPI_PROC_NULL){
+	if (right >= 0){
 		MPI_Recv(TmpVect, NY-2, MPI_DOUBLE, right, tag, Grid_Comm, &status);
 		for(j=1; j < NY-1; j++)
 			Vect[NX*j+NX-1] = TmpVect[j-1];
@@ -181,15 +184,9 @@ int CGM(int CGMNum, double * XNodes, double * YNodes, int NX, int NY, int N0, in
     MPI_Cart_shift(Grid_Comm, 0, 1, &left, &right);
     MPI_Cart_shift(Grid_Comm, 1, 1, &down, &up);
 
-    if (left < 0) left = MPI_PROC_NULL;
-    if (right < 0) right = MPI_PROC_NULL;
-    if (up < 0) up = MPI_PROC_NULL;
-    if (down < 0) down = MPI_PROC_NULL;
-
 	SolVect   = (double *)malloc(NX*NY*sizeof(double));
 	ResVect   = (double *)malloc(NX*NY*sizeof(double));
 	RHS_Vect  = (double *)malloc(NX*NY*sizeof(double));
-
 
 // Initialization of Arrays
 	memset(ResVect,0,NX*NY*sizeof(double));
@@ -199,30 +196,30 @@ int CGM(int CGMNum, double * XNodes, double * YNodes, int NX, int NY, int N0, in
 	x0=y0=0;
 	xn=NX; yn=NY;
 
-	if (YNodes[0] == B0){
+	if (down < 0){
 		for(i=0; i<NX; i++)
-			SolVect[i] = BoundaryValue(XNodes[i],YNodes[0]);
+			SolVect[i] = BoundaryValue(XNodes[i],B0);
 		y0=1;
 	} 		
-	if (YNodes[NY-1] == B1){
+	if (up < 0){
 		for(i=0; i<NX; i++)
-			SolVect[NX*(NY-1)+i] = BoundaryValue(XNodes[i],YNodes[NY-1]);
+			SolVect[NX*(NY-1)+i] = BoundaryValue(XNodes[i],B1);
 		yn=NY-1;
 	}   
-	if (XNodes[0] == A0){
+	if (left < 0){
 		for(j=0; j<NY; j++)
-			SolVect[NX*j] = BoundaryValue(XNodes[0],YNodes[j]);
+			SolVect[NX*j] = BoundaryValue(A0,YNodes[j]);
 		x0=1;
 	}
-	if (XNodes[NX-1] == A1){
+	if (right < 0){
 		for(j=0; j<NY; j++)
-			SolVect[NX*j+(NX-1)] = BoundaryValue(XNodes[NX-1],YNodes[j]);
+			SolVect[NX*j+(NX-1)] = BoundaryValue(A1,YNodes[j]);
 		xn=NX-1;
 	}
 
 // Steep descent iterations begin ...
 	#ifdef Print
-		printf("\nSteep descent iterations begin ...\n");
+		if (rank == 0) printf("\nSteep descent iterations begin ...\n");
 	#endif
 
 	for(counter=0; counter<SDINum; counter++)
@@ -276,10 +273,10 @@ int CGM(int CGMNum, double * XNodes, double * YNodes, int NX, int NY, int N0, in
 
         if(1)//counter%Step == 0)
         {
-            printf("The Steep Descent iteration %d has been performed.\n",counter);
+            if (rank == 0) printf("The Steep Descent iteration %d has been performed.\n",counter);
             
     #ifdef Print
-            printf("\nThe Steep Descent iteration k = %d has been performed.\n"
+            if (rank == 0) printf("\nThe Steep Descent iteration k = %d has been performed.\n"
 					"Step \\tau(k) = %f.\nThe difference value is estimated by %.12f.\n",\
 					counter, tau, err);
     #endif
@@ -295,7 +292,7 @@ int CGM(int CGMNum, double * XNodes, double * YNodes, int NX, int NY, int N0, in
         }
     }
 // the end of steep descent iteration.
-	printf("\nSteep descent iteration ended\n\n");
+	if (rank == 0) printf("\nSteep descent iteration ended\n\n");
 
 	BasisVect = ResVect;    // g(0) = r(k-1).
 	ResVect = (double *)malloc(NX*NY*sizeof(double));
@@ -304,7 +301,7 @@ int CGM(int CGMNum, double * XNodes, double * YNodes, int NX, int NY, int N0, in
 // CGM iterations begin ...
 // sp == (Ar(k-1),r(k-1)) == (Ag(0),g(0)), k=1.
 	#ifdef Print
-		printf("\nCGM iterations begin ...\n");
+		if (rank == 0) printf("\nCGM iterations begin ...\n");
 	#endif
 
 	for(counter=1; counter<=CGMNum; counter++)
@@ -333,8 +330,8 @@ int CGM(int CGMNum, double * XNodes, double * YNodes, int NX, int NY, int N0, in
 		alpha = alpha/sp;
 
 	// The new basis vector g(k) is being calculated ...
-		for(j=1; j < NY-1; j++)
-			for(i=1; i < NX-1; i++)
+		for(j=0; j < NY; j++)
+			for(i=0; i < NX; i++)
 				BasisVect[NX*j+i] = ResVect[NX*j+i]-alpha*BasisVect[NX*j+i];
 
 	// The value of product (r(k),g(k)) is being calculated ...
@@ -380,7 +377,6 @@ int CGM(int CGMNum, double * XNodes, double * YNodes, int NX, int NY, int N0, in
                        "The value of \\alpha(k) = %f, \\tau(k) = %f. The difference value is %f.\n",\
                         counter, alpha, tau, err);
 #endif
-        if (err < 0.00001) break;
 /*#ifdef Test
 			tmp = 0.0;
 			for(j=1; j < NY-1; j++)
@@ -390,12 +386,12 @@ int CGM(int CGMNum, double * XNodes, double * YNodes, int NX, int NY, int N0, in
                         counter, tmp);
 #endif*/
 		}
+        if (err < 0.00001) break;
 	}
 // the end of CGM iterations.
 
 // printing some results ...
-	printf("\nThe %d iterations are carried out. The error of iterations is estimated by %.12f.\n",
-                CGMNum, err);
+	if (rank == 0) printf("\nThe %d iterations are carried out. The error of iterations is estimated by %.12f.\n", CGMNum, err);
 
     MPI_Comm_size(MPI_COMM_WORLD,&ProcNum);
 
@@ -404,7 +400,7 @@ int CGM(int CGMNum, double * XNodes, double * YNodes, int NX, int NY, int N0, in
 		for (j=0; j < NY; j+=100)
 		{
 			for (i=0; i < NX; i+=100)
-				fprintf(fp,"%f %f %f\n", XNodes[i], YNodes[j], SolVect[NX*j+i]);
+				fprintf(fp,"%f %f %f\n", XNodes[i]+1, YNodes[j]+1, SolVect[NX*j+i]);
 		}
 	fclose(fp);
 
