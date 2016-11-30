@@ -334,6 +334,9 @@ int CGM(int CGMNum, double * XNodes, double * YNodes, int NX, int NY, int N0, in
 			for(i=0; i < NX; i++)
 				BasisVect[NX*j+i] = ResVect[NX*j+i]-alpha*BasisVect[NX*j+i];
 
+		Send(BasisVect, NX, NY, up, down, left, right, 3, Grid_Comm);
+		Receive(BasisVect, NX, NY, up, down, left, right, 3, Grid_Comm);
+
 	// The value of product (r(k),g(k)) is being calculated ...
 		tau = 0.0;
 		for(j=1; j < NY-1; j++)
@@ -386,7 +389,7 @@ int CGM(int CGMNum, double * XNodes, double * YNodes, int NX, int NY, int N0, in
                         counter, tmp);
 #endif*/
 		}
-        if (err < 0.00001) break;
+        if (err < 0.0000001) break;
 	}
 // the end of CGM iterations.
 
@@ -397,10 +400,10 @@ int CGM(int CGMNum, double * XNodes, double * YNodes, int NX, int NY, int N0, in
 
 	sprintf(str,"PuassonSerial_ECGM_%d_%dx%d.dat", ProcNum, N0, N1);
 	fp = fopen(str,"a");
-		for (j=0; j < NY; j+=100)
+		for (j=0; j < NY; j+=1)
 		{
-			for (i=0; i < NX; i+=100)
-				fprintf(fp,"%f %f %f\n", XNodes[i]+1, YNodes[j]+1, SolVect[NX*j+i]);
+			for (i=0; i < NX; i+=1)
+				fprintf(fp,"%d %d %d %d %f %f %f\n", i==0, i==NX-1, j==0, j==NY-1, XNodes[i]+1, YNodes[j]+1, SolVect[NX*j+i]);
 		}
 	fclose(fp);
 
