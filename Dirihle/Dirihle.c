@@ -119,8 +119,8 @@ int Send(double * Vect, int NX, int NY, int up, int down, int left, int right, i
 	int j;
 	double * TmpVect= (double *)malloc((NY-2)*sizeof(double));						// for sending or receiving
 
-	if (up >= 0) MPI_Send(Vect+NX+1, NX-2, MPI_DOUBLE, up, tag, Grid_Comm);
-	if (down >= 0) MPI_Send(Vect+NX*(NY-2)+1, NX-2, MPI_DOUBLE, down, tag, Grid_Comm);
+	if (up >= 0) MPI_Send(Vect+NX*(NY-2)+1, NX-2, MPI_DOUBLE, up, tag, Grid_Comm);
+	if (down >= 0) MPI_Send(Vect+NX+1, NX-2, MPI_DOUBLE, down, tag, Grid_Comm);
 
 	if (left >= 0){
 		for(j=1; j < NY-1; j++)
@@ -142,8 +142,8 @@ int Receive(double * Vect, int NX, int NY, int up, int down, int left, int right
     MPI_Status status;
 	double * TmpVect= (double *)malloc((NY-2)*sizeof(double));						// for sending or receiving
 
-	if (up >= 0) MPI_Recv(Vect+1, NX-2, MPI_DOUBLE, up, tag, Grid_Comm, &status);
-	if (down >= 0) MPI_Recv(Vect+NX*(NY-1)+1, NX-2, MPI_DOUBLE, down, tag, Grid_Comm, &status);
+	if (up >= 0) MPI_Recv(Vect+NX*(NY-1)+1, NX-2, MPI_DOUBLE, up, tag, Grid_Comm, &status);
+	if (down >= 0) MPI_Recv(Vect+1, NX-2, MPI_DOUBLE, down, tag, Grid_Comm, &status);
 
 	if (left >= 0){
 		MPI_Recv(TmpVect, NY-2, MPI_DOUBLE, left, tag, Grid_Comm, &status);
@@ -160,6 +160,62 @@ int Receive(double * Vect, int NX, int NY, int up, int down, int left, int right
 	free(TmpVect);
 	return 0;
 }
+
+int Exchange(double * Vect, int NX, int NY, int up, int down, int left, int right, int tag, MPI_Comm Grid_Comm){
+	int j;
+	MPI_Status status;
+	double * TmpVect= (double *)malloc((NY-2)*sizeof(double));						// for sending or receiving
+
+	if (up >= 0) MPI_Send(Vect+NX*(NY-2)+1, NX-2, MPI_DOUBLE, up, tag, Grid_Comm);
+	if (down >= 0) MPI_Recv(Vect+1, NX-2, MPI_DOUBLE, down, tag, Grid_Comm, &status);
+
+	if (down >= 0) MPI_Send(Vect+NX+1, NX-2, MPI_DOUBLE, down, tag, Grid_Comm);
+	if (up >= 0) MPI_Recv(Vect+NX*(NY-1)+1, NX-2, MPI_DOUBLE, up, tag, Grid_Comm, &status);
+
+	if (left >= 0){
+		for(j=1; j < NY-1; j++)
+			TmpVect[j-1] = Vect[NX*j+1];
+		MPI_Send(TmpVect, NY-2, MPI_DOUBLE, left, tag, Grid_Comm);
+	}
+	if (right >= 0){
+		MPI_Recv(TmpVect, NY-2, MPI_DOUBLE, right, tag, Grid_Comm, &status);
+		for(j=1; j < NY-1; j++)
+			Vect[NX*j+NX-1] = TmpVect[j-1];
+	}
+
+	if (right >= 0){
+		for(j=1; j < NY-1; j++)
+			TmpVect[j-1] = Vect[NX*j+NX-2];
+		MPI_Send(TmpVect, NY-2, MPI_DOUBLE, right, tag, Grid_Comm);
+	}
+	if (left >= 0){
+		MPI_Recv(TmpVect, NY-2, MPI_DOUBLE, left, tag, Grid_Comm, &status);
+		for(j=1; j < NY-1; j++)
+			Vect[NX*j] = TmpVect[j-1];
+	}
+
+	free(TmpVect);
+	return 0;
+}
+
+
+int print_matrix(double *arr, char *text, int rank, int len_x, int len_y)
+{
+    FILE *fp;
+    char str[127];
+    sprintf(str,"matrix_%d", rank);
+    fp = fopen(str,"a");
+    int i,j;
+    fprintf(fp, "%s\n", text);
+    for (j=0; j < len_y; j++) {
+        for (i=0; i < len_x; i++)
+            fprintf(fp, "%.4f ", arr[j*len_x+i]);
+        fprintf(fp, "\n");
+    }
+    fclose(fp);
+    return 0;
+}
+
 
 int CGM(int CGMNum, double * XNodes, double * YNodes, int NX, int NY, int N0, int N1, MPI_Comm Grid_Comm){
 
@@ -178,7 +234,6 @@ int CGM(int CGMNum, double * XNodes, double * YNodes, int NX, int NY, int N0, in
 	char str[127];
 	FILE * fp;
 	int x0, xn, y0, yn;						// internal boundaries
-
 
     MPI_Comm_rank(MPI_COMM_WORLD,&rank);
     MPI_Cart_shift(Grid_Comm, 0, 1, &left, &right);
@@ -230,8 +285,7 @@ int CGM(int CGMNum, double * XNodes, double * YNodes, int NX, int NY, int N0, in
 				ResVect[NX*j+i] = LeftPart(SolVect,i,j,XNodes,YNodes,NX,NY)-RHS_Vect[NX*j+i];
 
 // Send ResVect to neighbours
-		Send(ResVect, NX, NY, up, down, left, right, 2, Grid_Comm);
-
+		
 // The value of product (r(k),r(k)) is calculating ...
 		sp = 0.0;
 		for(j=1; j < NY-1; j++)
@@ -241,10 +295,9 @@ int CGM(int CGMNum, double * XNodes, double * YNodes, int NX, int NY, int N0, in
 		MPI_Allreduce(&tmp, &sp, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 		tau = sp;
 
-// Receive ResVect from neighbours
-		Receive(ResVect, NX, NY, up, down, left, right, 2, Grid_Comm);
-
 // The value of product sp = (Ar(k),r(k)) is calculating ...
+		Exchange(ResVect, NX, NY, up, down, left, right, 2, Grid_Comm);
+
 		sp = 0.0;
 		for(j=1; j < NY-1; j++)
 			for(i=1; i < NX-1; i++)
@@ -263,8 +316,7 @@ int CGM(int CGMNum, double * XNodes, double * YNodes, int NX, int NY, int N0, in
 				SolVect[NX*j+i] = NewValue;
 			}
 
-// Send boundary SolVect
-		Send(SolVect, NX, NY, up, down, left, right, 1, Grid_Comm);
+		Exchange(SolVect, NX, NY, up, down, left, right, 10, Grid_Comm);
 
 		tmp = err;
 		MPI_Allreduce(&tmp, &err, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
@@ -306,19 +358,12 @@ int CGM(int CGMNum, double * XNodes, double * YNodes, int NX, int NY, int N0, in
 
 	for(counter=1; counter<=CGMNum; counter++)
 	{
-	// Receive SolVect from neighbours
-		Receive(SolVect, NX, NY, up, down, left, right, 1, Grid_Comm);
-
 	// The residual vector r(k) is calculating ...
 		for(j=1; j < NY-1; j++)
 			for(i=1; i < NX-1; i++)
 				ResVect[NX*j+i] = LeftPart(SolVect,i,j,XNodes,YNodes,NX,NY)-RHS_Vect[NX*j+i];
 
-	// Send ResVect to neighbours
-		Send(ResVect, NX, NY, up, down, left, right, 2, Grid_Comm);
-
-	// Receive ResVect from neighbours
-		Receive(ResVect, NX, NY, up, down, left, right, 2, Grid_Comm);
+		Exchange(ResVect, NX, NY, up, down, left, right, 2, Grid_Comm);
 
 	// The value of product (Ar(k),g(k-1)) is calculating ...
 		alpha = 0.0;
@@ -334,9 +379,6 @@ int CGM(int CGMNum, double * XNodes, double * YNodes, int NX, int NY, int N0, in
 			for(i=0; i < NX; i++)
 				BasisVect[NX*j+i] = ResVect[NX*j+i]-alpha*BasisVect[NX*j+i];
 
-		Send(BasisVect, NX, NY, up, down, left, right, 3, Grid_Comm);
-		Receive(BasisVect, NX, NY, up, down, left, right, 3, Grid_Comm);
-
 	// The value of product (r(k),g(k)) is being calculated ...
 		tau = 0.0;
 		for(j=1; j < NY-1; j++)
@@ -344,8 +386,9 @@ int CGM(int CGMNum, double * XNodes, double * YNodes, int NX, int NY, int N0, in
 				tau += ResVect[NX*j+i]*BasisVect[NX*j+i]*(0.5*(hx(i,XNodes)+hx(i-1,XNodes)))*(0.5*(hy(j,YNodes)+hy(j-1,YNodes)));
 		tmp = tau;
 		MPI_Allreduce(&tmp, &tau, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-		
-	// The value of product sp = (Ag(k),g(k)) is being calculated ...
+
+		Exchange(BasisVect, NX, NY, up, down, left, right, 3, Grid_Comm);
+
 		sp = 0.0;
 		for(j=1; j < NY-1; j++)
 			for(i=1; i < NX-1; i++)
@@ -363,33 +406,38 @@ int CGM(int CGMNum, double * XNodes, double * YNodes, int NX, int NY, int N0, in
 				err += Sqr(NewValue-SolVect[NX*j+i]);
 				SolVect[NX*j+i] = NewValue;
 			}
-// Send boundary SolVect
-		Send(SolVect, NX, NY, up, down, left, right, 1, Grid_Comm);
+
+		Exchange(SolVect, NX, NY, up, down, left, right, 1, Grid_Comm);
 
 // Calculate err
 		tmp = err;
 		MPI_Allreduce(&tmp, &err, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 		err = sqrt(err);
 
-		if(counter%Step == 0 && rank == 0)
+		if(counter%Step == 0)
 		{
+            if (rank == 0)
 			printf("The %d iteration of CGM method has been carried out.\n", counter);
             
 #ifdef Print            
+            if (rank == 0)
             printf("\nThe iteration %d of conjugate gradient method has been finished.\n"
                        "The value of \\alpha(k) = %f, \\tau(k) = %f. The difference value is %f.\n",\
                         counter, alpha, tau, err);
 #endif
-/*#ifdef Test
-			tmp = 0.0;
+#ifdef Test
+            double loc_tmp = 0.0;
 			for(j=1; j < NY-1; j++)
 				for(i=1; i < NX-1; i++)
-					tmp = Max(err, fabs(Solution(XNodes[i],YNodes[j])-SolVect[NX*j+i]));
-			printf("The %d iteration of CGM have been performed. The residual error is %.12f\n",\
+					loc_tmp += Sqr(fabs(Solution(XNodes[i],YNodes[j])-SolVect[NX*j+i]));
+			MPI_Allreduce(&loc_tmp, &tmp, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+            tmp = sqrt(tmp);
+            if (rank == 0)
+            printf("The %d iteration of CGM have been performed. The residual error is %.12f\n",\
                         counter, tmp);
-#endif*/
+#endif
 		}
-        if (err < 0.0000001) break;
+        if (err < 0.0001) break;
 	}
 // the end of CGM iterations.
 
@@ -398,12 +446,13 @@ int CGM(int CGMNum, double * XNodes, double * YNodes, int NX, int NY, int N0, in
 
     MPI_Comm_size(MPI_COMM_WORLD,&ProcNum);
 
-	sprintf(str,"PuassonSerial_ECGM_%d_%dx%d.dat", ProcNum, N0, N1);
+	sprintf(str,"PuassonSerial_ECGM_%d_%d_%dx%d.dat", ProcNum, rank, N0, N1);
 	fp = fopen(str,"a");
 		for (j=0; j < NY; j+=1)
 		{
 			for (i=0; i < NX; i+=1)
-				fprintf(fp,"%d %d %d %d %f %f %f\n", i==0, i==NX-1, j==0, j==NY-1, XNodes[i]+1, YNodes[j]+1, SolVect[NX*j+i]);
+				//fprintf(fp,"%d %d %d %d %f %f %f\n", i==0, i==NX-1, j==0, j==NY-1, XNodes[i]+1, YNodes[j]+1, SolVect[NX*j+i]);
+				fprintf(fp,"%f %f %f\n", XNodes[i]+1, YNodes[j]+1, SolVect[NX*j+i]);
 		}
 	fclose(fp);
 
@@ -411,6 +460,7 @@ int CGM(int CGMNum, double * XNodes, double * YNodes, int NX, int NY, int N0, in
 	free(SolVect); free(ResVect); free(BasisVect); free(RHS_Vect);
 	return(0);
 }
+
 
 int main(int argc, char **argv)
 {
@@ -536,11 +586,11 @@ int main(int argc, char **argv)
 #endif
 
 	time0 = MPI_Wtime();
-    CGM(CGMNum, XNodes+i0, YNodes+j0, NX, NY, N0, N1, Grid_Comm);
+	CGM(CGMNum, XNodes+i0, YNodes+j0, NX, NY, N0, N1, Grid_Comm);
 	time1 = MPI_Wtime();
 
 	if (rank == 0)
-		printf("Time in seconds=%.6fs\t",time1-time0);
+		printf("Time in seconds=%.6fs\n",time1-time0);
 
 	free(XNodes); free(YNodes);
     MPI_Finalize();
